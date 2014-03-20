@@ -1,51 +1,64 @@
 require "binneroc/version"
+require 'bigdecimal'
 
 module Binneroc
 
   class << self
-
-    # calculates the number of items that should be in the array.  Assumes
-    # floats
-    def array_size(start, stop, step, exclude_end=false)
-      array_size = ((stop - start) / step).floor
-      if (array_size.floor == array_size) && !exclude_end
-        array_size += 1
-      end
-      array_size
-    end
-
+    # if converting from a floating point number, the precision to use
+    BIG_DECIMAL_PRECISION = 10
+  
     # returns (new_x_coords, new_y_coords)
     #
     # each bin is the *minimum* for that bin. i.e., the bin includes all
     # values starting at that point non-inclusive to that point + increment.
     #
-    # Binneroc.bin([4.5], [7], start: 4.0, increment: 1.0) => 
-    #   [[4.0], [7]]
+    # Example: 
+    # 
+    # 
+    # Note: The final bin + increment may exceed the :stop value.
+    # Note: Values falling outside the range of start to final bin + increment
+    # will not be included.
     #
-    # Note: the final bin + increment may exceed the :stop value.
+    #     xvals = the current x coordinates
+    #     yvals = the parallel y values
     #
-    # Where:
-    #   xvec = the current x coordinates
-    #   yvec = the parallel y coords 
-    #   start = the initial x point; if nil then floor of lowest x value
-    #   stop = the final point; if nil then ceil of highest x value
+    #     start = the starting x point for binning 
+    #                 if nil then floor of lowest xvals value
+    #     stop  = no more bins created after stop
+    #                 if nil then ceil of highest xvals value
+    #     increment = the x coordinate (binning) increment
+    #     exclude_end = *false|true how to treat stop value
     #
-    #   increment = the x coordinate increment
-    #   baseline = the default value if no values lie in a bin
-    #   behavior = response when multiple values fall to the same bin
-    #     sum => sums all values
-    #     avg => avgs the values
-    #     max_x => takes the value at the highest x coordinate
-    #     max_y => takes the value of the highest y value (even if lower than baseline)
-    #     max_yb => takes the highest y value (includes the baseline)
+    #     default = the default value if no values lie in a bin
+    #               note that values are not added on top of the default
+    #               it is just the value used if there are no values for a bin
+    #
+    #     consider_default = true: treat the default value as the first value in the bin
+    #                        false: default considered only if no values fall in the bin
+    #
+    #     outputclass = (Array) make new arrays using this class
+    #                   needs to accept 
+    #                       ::new(array)
+    #                       ::new(size)
+    #                       ::new(size, default)
+    #
+    #     behavior = response when multiple values fall to the same bin
+    #         sum => sums all values
+    #         # below are not yet implemented but could easily be:
+    #         avg => avgs the values # not yet implemented 
+    #         max_x => takes the value at the highest x coordinate
+    #         max_y => takes the value of the highest y value (even if lower than baseline)
+    #         max_yb => takes the highest y value (includes the baseline)
+    #
+    #     return_xvals = true|false (default true)
     #
     # outputclass needs to be able to create a new vector like object with the
     # arguments outputclass.new(size, value) or outputclass.new(size).
-    def bin(xvec, yvec, start: nil, stop: nil, increment: 1.0, baseline: 0.0, behavior: :sum, outputclass: Array, return_xvec: true, exclude_end: false)
-      raise ArgumentError, "xvec and yvec need to be parallel (same size)!" unless xvec.size == yvec.size
+    def bin(xvals, yvals, start: nil, stop: nil, increment: 1.0, default: 0.0, behavior: :sum, outputclass: Array, return_xvals: true, exclude_end: false, consider_default: false)
+      raise ArgumentError, "xvals and yvals need to be parallel (same size)!" unless xvals.size == yvals.size
 
-      if xvec.size == 0
-        if return_xvec
+      if xvals.size == 0
+        if return_xvals
           return [[],[]]
         else
           return []
@@ -55,98 +68,125 @@ module Binneroc
       increment = increment.to_f unless increment.is_a?(Float)
 
       if start.nil? && stop.nil?
-        (min, max) = xvec.minmax
+        (min, max) = xvals.minmax
       elsif start.nil?
-        min = xvec.min
+        min = xvals.min
         stop = stop.to_f
       elsif stop.nil?
-        max = xvec.max
+        max = xvals.max
         start = start.to_f
       end
       start = min.floor.to_f if min
       stop = max.ceil.to_f if max
 
-      newsize = array_size(start, stop, increment, exclude_end)
-      range = Range.new(start, start + (increment * newsize), exclude_end)
-      p range
+      (startbd, stopbd, incrementbd) = [start, stop, increment].map do |v| 
+        if v.is_a?(Float) 
+          BigDecimal.new(v, BIG_DECIMAL_PRECISION)
+        else
+          BigDecimal.new(v)
+        end
+      end
 
-      yvec_new = outputclass.new(newsize, baseline)
+      newsize = array_size(startbd, stopbd, incrementbd, exclude_end)
+      range = Range.new(startbd, startbd + (incrementbd * newsize), exclude_end)
+
+      yvec_new = outputclass.new(newsize, default)
+      index_bounds = (0...newsize)
 
       case behavior
       when :sum
-        xvec.zip(yvec) do |x, y|
-          index = (x / increment).floor # round??
-          unless index < 0 || index >= newsize
-            yvec_new[index] += y
+        if consider_default
+          xvals.zip(yvals) do |x, y|
+            index = ((x-startbd) / incrementbd).floor # round??
+            if index_bounds===(index)
+              yvec_new[index] += y 
+            end
+          end
+        else
+          no_default = outputclass.new(newsize, 0.0)
+          xvals.zip(yvals) do |x, y|
+            index = ((x-startbd) / incrementbd).floor # round??
+            if index_bounds===(index)
+              yvec_new[index] = no_default[index] + y
+              no_default[index] += y 
+            end
           end
         end
       end
 
-      if return_xvec
-        ar = range.step(increment).to_a
-        ar.pop
-        [ar, yvec_new]
+      if return_xvals
+        new_xvals = range.step(incrementbd).to_a
+        new_xvals.pop if new_xvals.size > newsize
+        [outputclass.new(new_xvals), yvec_new]
       else
         yvec_new
       end
     end
+
+    # calculates the number of items that should be in the array.
+    def array_size(start, stop, step, exclude_end=false)
+      fractional_arr_sz = (stop - start) / step
+      array_size_floor = fractional_arr_sz.floor
+      array_size_floor += 1 unless exclude_end && (array_size_floor == fractional_arr_sz)
+      array_size_floor.to_i
+    end
+
   end
 end
 
 
-      ### CREATE array to hold mapped values and write in the baseline
-      #yvec_new = outputclass.new(max_ind+1-start_scaled, baseline)
-      #nobl = outputclass.new(max_ind+1, 0) unless behavior == :max_x
 
-      #case behavior
-      #when :sum
-        #xvec_scaled.each_with_index do |ind,i|
-          #val = yvec[i]
-          #yvec_new[ind-lshift] = nobl[ind] + val
-          #nobl[ind] += val
-        #end
-      #when :max_x  ## FASTEST BEHAVIOR
-        #xvec_scaled.each_with_index do |ind,i|
-          #yvec_new[ind-lshift] = yvec[i]
-        #end
-      #when :avg
-        #count = Hash.new {|s,key| s[key] = 0 }
-        #xvec_scaled.each_with_index do |ind,i|
-          #val = yvec[i]
-          #yvec_new[ind-lshift] = nobl[ind] + val
-          #nobl[ind] += val
-          #count[ind] += 1
-        #end
-        #count.each do |k,co|
-          #if co > 1;  yvec_new[k-lshift] /= co end
-        #end
-      #when :max_y
-        #xvec_scaled.each_with_index do |ind,i|
-          #val = yvec[i]
-          #if val > nobl[ind]
-            #yvec_new[ind-lshift] = val
-            #nobl[ind] = val 
-          #end
-        #end
-      #when :max_yb
-        #xvec_scaled.each_with_index do |ind,i|
-          #val = yvec[i]
-          #if val > yvec_new[ind-lshift]
-            #yvec_new[ind-lshift] = val 
-          #end
-        #end
-      #else 
-        #abort "Not a valid behavior: #{behavior.inspect}"
-      #end
+## reference from old behavior
 
-      #if return_xvec
-        #xvec_new = outputclass.new(newsize) 
-        #Range.new(start, stop, exclude_end).step(increment).each_with_index do |v,i|
-          #xvec_new[i] = v
-        #end
-      #end
+### CREATE array to hold mapped values and write in the baseline
+#yvec_new = outputclass.new(max_ind+1-start_scaled, baseline)
+#nobl = outputclass.new(max_ind+1, 0) unless behavior == :max_x
 
-#      [xvec_new, yvec_new]
+#case behavior
+#when :sum
+  #xvec_scaled.each_with_index do |ind,i|
+    #val = yvec[i]
+    #yvec_new[ind-lshift] = nobl[ind] + val
+    #nobl[ind] += val
+  #end
+#when :max_x  ## FASTEST BEHAVIOR
+  #xvec_scaled.each_with_index do |ind,i|
+    #yvec_new[ind-lshift] = yvec[i]
+  #end
+#when :avg
+  #count = Hash.new {|s,key| s[key] = 0 }
+  #xvec_scaled.each_with_index do |ind,i|
+    #val = yvec[i]
+    #yvec_new[ind-lshift] = nobl[ind] + val
+    #nobl[ind] += val
+    #count[ind] += 1
+  #end
+  #count.each do |k,co|
+    #if co > 1;  yvec_new[k-lshift] /= co end
+  #end
+#when :max_y
+  #xvec_scaled.each_with_index do |ind,i|
+    #val = yvec[i]
+    #if val > nobl[ind]
+      #yvec_new[ind-lshift] = val
+      #nobl[ind] = val 
     #end
   #end
+#when :max_yb
+  #xvec_scaled.each_with_index do |ind,i|
+    #val = yvec[i]
+    #if val > yvec_new[ind-lshift]
+      #yvec_new[ind-lshift] = val 
+    #end
+  #end
+#else 
+  #abort "Not a valid behavior: #{behavior.inspect}"
 #end
+
+#if return_new_xvals
+  #xvec_new = outputclass.new(newsize) 
+  #Range.new(start, stop, exclude_end).step(increment).each_with_index do |v,i|
+    #xvec_new[i] = v
+  #end
+#end
+
