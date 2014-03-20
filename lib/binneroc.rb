@@ -1,6 +1,12 @@
 require "binneroc/version"
 require 'bigdecimal'
 
+if RUBY_VERSION == '2.1.0'
+  STDERR.puts "You are using a version of ruby with a known bug in BigDecimal division."
+  STDERR.puts "This is fixed in newer versions of ruby.  Please upgrade"
+  raise
+end
+
 module Binneroc
 
   class << self
