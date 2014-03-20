@@ -95,4 +95,8 @@ describe 'iconic case' do
     expect(reply).to eq [30.0, 30.0, 40.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 50.0]
   end
 
+  specify 'can return only the x values' do
+    reply = Binneroc.bin(*vals, start: "4.0", stop: "5.0", increment: "0.1", only_xvals: true)
+    expect(reply).to eq (4..5).step(0.1).to_a
+  end
 end

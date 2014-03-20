@@ -60,11 +60,11 @@ module Binneroc
     #
     # outputclass needs to be able to create a new vector like object with the
     # arguments outputclass.new(size, value) or outputclass.new(size).
-    def bin(xvals, yvals, start: nil, stop: nil, increment: 1.0, default: 0.0, behavior: :sum, outputclass: Array, return_xvals: true, exclude_end: false, consider_default: false)
+    def bin(xvals, yvals, start: nil, stop: nil, increment: 1.0, default: 0.0, behavior: :sum, outputclass: Array, return_xvals: true, exclude_end: false, consider_default: false, only_xvals: false)
       raise ArgumentError, "xvals and yvals need to be parallel (same size)!" unless xvals.size == yvals.size
 
       if xvals.size == 0
-        if return_xvals
+        if return_xvals && !only_xvals
           return [[],[]]
         else
           return []
@@ -96,6 +96,13 @@ module Binneroc
       newsize = array_size(startbd, stopbd, incrementbd, exclude_end)
       range = Range.new(startbd, startbd + (incrementbd * newsize), exclude_end)
 
+      if return_xvals
+        basic_xvals = range.step(incrementbd).to_a
+        basic_xvals.pop if basic_xvals.size > newsize
+        new_xvals = outputclass.new(basic_xvals)
+      end
+      return new_xvals if only_xvals
+
       yvec_new = outputclass.new(newsize, default)
       index_bounds = (0...newsize)
 
@@ -121,9 +128,7 @@ module Binneroc
       end
 
       if return_xvals
-        new_xvals = range.step(incrementbd).to_a
-        new_xvals.pop if new_xvals.size > newsize
-        [outputclass.new(new_xvals), yvec_new]
+        [new_xvals, yvec_new]
       else
         yvec_new
       end
@@ -135,6 +140,11 @@ module Binneroc
       array_size_floor = fractional_arr_sz.floor
       array_size_floor += 1 unless exclude_end && (array_size_floor == fractional_arr_sz)
       array_size_floor.to_i
+    end
+
+    # takes the x array and the arguments and produces the xvals that would be
+    # produced with bin
+    def xvals(xvals, **args)
     end
 
   end
