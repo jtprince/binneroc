@@ -2,25 +2,56 @@ require 'spec_helper'
 
 require 'binneroc'
 
-describe 'binning with no data' do
+describe 'determining the number of bins' do
+  specify 'not excluding the end' do
+    args = [0.0, 1.0, 0.1, false]
+
+    ans = Binneroc.array_size(*args)
+    expect(ans).to eq 11
+  end
+
+  specify 'excluding the end' do
+    args = [0.0, 1.0, 0.1, true]
+
+    ans = Binneroc.array_size(*args)
+    expect(ans).to eq 10
+  end
+
+  specify 'finding with other weird values' do
+    args = [0.0, 1.0, 0.4, false]
+
+    ans = Binneroc.array_size(*args)
+    expect(ans).to eq 3
+  end
+
 end
 
-describe 'simple case' do
+describe 'binning with no data' do
+  it 'works' do
+    (xs, ys) = Binneroc.bin([],[])
+    expect(xs).to eq []
+    expect(ys).to eq []
 
+    reply = Binneroc.bin([],[], return_xvec: false)
+    expect(reply).to eq []
+  end
+end
 
+describe 'simplest cases' do
+  let(:vals) {
+    [
+      [3.15],
+      [   4]
+    ]
+  }
 
+  it 'does not bin outside the range' do
+    reply = Binneroc.bin(*vals, start: 3.5, stop: 4.0, increment: 1.0)
+    expect(reply).to eq [[3.5], [0.0]]
 
-  let(:xvals) {[3.3, 4.5, 6.6]}
-  let(:yvals) {[4,    10,   2]}
+    reply = Binneroc.bin(*vals, start: 3.0, stop: 4.0, increment: 1.0)
+    expect(reply).to eq [[3.0], [0.0]]
 
-  it 'bins' do
-    (new_xvals, new_yvals) = Binneroc.bin(xvals, yvals, start: 3.5, stop: 6.0)
-
-    p new_xvals
-    p new_yvals
-
-    #expect(new_xvals).to eq [3.0, 4.0, 5.0, 6.0, 7.0]
-    #expect(new_yvals).to_eq [4, 0.0, 10, 0.0, 2]
   end
 end
 
