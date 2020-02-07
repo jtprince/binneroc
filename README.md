@@ -21,4 +21,3 @@ yvals = [4,    10,   2]
 ## Copyright
 
 MIT License.  See LICENSE.txt.
-
